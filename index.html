@@ -1,0 +1,2212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>inMotion</title>
+<style>
+  :root {
+    --bg: #07070a;
+    --fg: #f2efe9;
+    --accent: #d9b26a;
+    --dim: rgba(242, 239, 233, 0.45);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: Georgia, 'Times New Roman', serif;
+  }
+
+  #webcam {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* mirror for natural interaction */
+    opacity: 0;
+    filter: brightness(0.5) saturate(0.9);
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+    z-index: 0;
+  }
+  #webcam.visible { opacity: 1; }
+
+  #scene {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    z-index: 1;
+  }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .ui {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  .title {
+    position: absolute;
+    top: 36px;
+    left: 42px;
+    margin: 0;
+    font-weight: 400;
+    font-size: 23px;
+    letter-spacing: 0.08em;
+    color: var(--fg);
+    opacity: 0.9;
+  }
+  .title span {
+    color: var(--accent);
+    font-style: italic;
+  }
+
+  .subtitle {
+    position: absolute;
+    top: 70px;
+    left: 43px;
+    font-size: 10.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--dim);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 300;
+  }
+
+  #toggleCam {
+    position: absolute;
+    top: 34px;
+    right: 42px;
+    pointer-events: all;
+    background: rgba(217, 178, 106, 0.03);
+    border: 1px solid rgba(217, 178, 106, 0.22);
+    color: var(--dim);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 10px 18px;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: color 0.35s ease, background-color 0.35s ease, border-color 0.35s ease;
+    backdrop-filter: blur(6px);
+  }
+  #toggleCam:hover {
+    color: var(--fg);
+    border-color: rgba(217, 178, 106, 0.55);
+    background: rgba(217, 178, 106, 0.08);
+  }
+  #toggleCam.on {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  #connectLight {
+    position: absolute;
+    top: 76px;
+    right: 42px;
+    pointer-events: all;
+    background: rgba(217, 178, 106, 0.03);
+    border: 1px solid rgba(217, 178, 106, 0.22);
+    color: var(--dim);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 10px 18px;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: color 0.35s ease, background-color 0.35s ease, border-color 0.35s ease;
+    backdrop-filter: blur(6px);
+    display: none; /* only shown once JS confirms Web Serial support */
+  }
+  #connectLight:hover {
+    color: var(--fg);
+    border-color: rgba(217, 178, 106, 0.55);
+    background: rgba(217, 178, 106, 0.08);
+  }
+  #connectLight.on {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .hint {
+    position: absolute;
+    bottom: 42px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10.5px;
+    font-weight: 300;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--dim);
+    text-align: center;
+    opacity: 0.5;
+    transition: opacity 0.4s ease;
+    white-space: nowrap;
+  }
+
+  /* live finger/hand readout, bottom-right — mirrors the hint's own
+     bottom offset, empty (not just invisible) whenever no hand is
+     tracked, so it never crowds the corner with a stale count */
+  .counter {
+    position: absolute;
+    bottom: 42px;
+    right: 42px;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 10.5px;
+    font-weight: 300;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    text-align: right;
+    opacity: 0.5;
+    white-space: nowrap;
+  }
+  .counter b {
+    color: var(--fg);
+    font-weight: 600;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  #loading {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--dim);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    transition: opacity 0.6s ease;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">Requesting camera&hellip;</div>
+
+<video id="webcam" autoplay playsinline muted></video>
+<canvas id="scene"></canvas>
+<canvas id="overlay"></canvas>
+
+<div class="ui">
+  <h1 class="title">In <span>Motion</span></h1>
+  <div class="subtitle">Gesture Sphere</div>
+  <button id="toggleCam">Webcam: Off</button>
+  <button id="connectLight">Connect Light</button>
+  <div class="hint" id="hint">show one hand to begin</div>
+  <div class="counter" id="counter"></div>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<!-- MediaPipe Hands -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // Config — hand tracking / world mapping
+  // ---------------------------------------------------------------------
+  const PINCH_RATIO_ON = 0.32;         // thumb-index distance / hand size, below this = pinching
+  const PINCH_RATIO_OFF = 0.42;        // release, with hysteresis
+
+  // ---------------------------------------------------------------------
+  // Config — the sphere itself
+  // ---------------------------------------------------------------------
+  const PARTICLE_COUNT = 3000;
+  const SPHERE_RADIUS = 110;
+  const SPHERE_BEHIND_TRACES_DIM = 0.42; // idle sphere brightness multiplier once finalized traces exist, so traces read in front of it
+  const IDLE_SPIN = 0.0012;            // constant slow spin, always present
+  const ROTATE_FACTOR = 0.0032;        // one-hand movement -> extra spin
+  // a frame-to-frame jump bigger than this isn't real hand motion — it's a
+  // tracking glitch, or (in this piece) the handoff from two-hand mode
+  // back to one, where the remaining hand's last-known position can be a
+  // few frames stale. Treat it as a discontinuity rather than a spin.
+  const MAX_ROTATE_JUMP = 120;
+  const POSITION_LERP = 0.1;           // how quickly the sphere eases toward the hand
+  const SCALE_MIN = 0.45, SCALE_MAX = 2.4;
+  const SCALE_REFERENCE_SPREAD = 200;  // two-hand distance (world units) that maps to scale 1.0
+  const SCALE_LERP = 0.09;
+
+  // ---------------------------------------------------------------------
+  // Config — pinch charge / explode
+  // ---------------------------------------------------------------------
+  const CHARGE_DURATION_MS = 1100;     // how long a full hold takes to fill the ring
+  const CHARGE_DECAY_MULT = 1.7;       // releasing early empties the ring a bit faster than it filled
+  const CHARGE_MIN_TO_EXPLODE = 0.15;  // below this, releasing is just a light tap — no explosion
+  const EXPLODE_OUT_MS = 420;          // how fast particles scatter outward
+  const EXPLODE_HOLD_MS = 200;         // a brief beat at full scatter before gravity takes back over
+  const EXPLODE_REFORM_MS = 1000;      // how long the reform back into a sphere takes
+
+  // ---------------------------------------------------------------------
+  // Config — post-explosion drawing (the scattered particles become an
+  // ambient backdrop; the trace itself is drawn directly in the air with
+  // a pointing index finger, finished with a still open palm, and then
+  // optionally picked up with a pinch and placed anywhere in the scene)
+  // plus the inactivity timeout that eventually resets the scene for the
+  // next participant
+  // ---------------------------------------------------------------------
+  // STRICT HAND ROLES for this phase — the two hands are never asked to
+  // do the same job, so there is nothing to disambiguate:
+  //   RIGHT hand  — draws (index pointing) and finalizes (open palm held
+  //                 still 2s). The left hand's pose is never even read by
+  //                 the draw/finalize logic.
+  //   LEFT hand   — grabs/drags/places an already-finalized trace with a
+  //                 pinch. The right hand's pinch is never read by the
+  //                 placement logic. The left hand can never draw or
+  //                 finalize.
+  const DRAW_FINALIZE_HOLD_SECONDS = 2.0;  // continuous still open RIGHT palm hold that finalizes the drawing
+  const DRAW_MIN_DOTS = 4;                 // an empty or near-empty trail can't be finalized
+  // The right hand triggers the explosion with a pinch, then relaxes into
+  // a point — during that relax it can flicker through a pointing-like
+  // pose. Requiring the point to hold a few consecutive frames before
+  // dots land keeps that transition from leaving a stray dot.
+  const DRAW_POSE_STABLE_FRAMES = 3;
+  const FINGER_EXTEND_SUSTAIN_MIN = 0.40;  // once a stroke is already underway, the index only needs to clear THIS (looser) bar to keep counting as "pointing" — real finger-extension readings hover and dip near FINGER_EXTEND_MIN from frame to frame (camera angle, landmark jitter), and without this gap a stroke keeps dropping to "ambiguous" and breaking mid-line even though the hand never stopped pointing. Starting a brand-new stroke still requires the stricter FINGER_EXTEND_MIN, so this only forgives continuing one, never starting one from a half-formed pose.
+  const DRAW_SAMPLE_MIN_DIST = 10;         // dots are spaced this far apart (world units) — also the interpolation step used to fill fast strokes. Kept comparable to the dot's own width (see drawTrailMat.size below) so the trail reads as a string of DISTINCT circles that touch (no gaps) rather than merging into a solid tube
+  const DRAW_BRIDGE_MAX_MS = 350;          // if the fingertip was last seen within this long ago, fill the gap to it with evenly-spaced dots (covers fast strokes AND multi-frame tracking dropouts); a longer gap starts a fresh dot instead of drawing a line across the whole screen
+  const DRAW_MAX_BRIDGE_DOTS = 80;         // safety cap on how many dots one gap can spawn, so a huge jump can't flood the budget in a single frame
+  const DRAW_DOT_POP_MS = 200;             // each dot grows/brightens in over this window after it lands
+  const DRAW_FINALIZE_STILL_VELOCITY_MAX = 90; // world units/sec — right palm slower than this counts as "held still"
+  const DRAW_FINALIZE_GRACE_FRAMES = 8;    // ambiguous frames (neither clearly pointing nor open-still) tolerated before the hold resets — debounces MediaPipe jitter so the completing state and its caption don't flicker
+  const PLACE_GRAB_RADIUS = 110;           // the left pinch must start within this (world units, screen-accurate space) of the finished mark to grab it
+  const PLACE_LOST_GRACE_FRAMES = 10;      // consecutive frames of lost left-hand tracking tolerated mid-grab before giving up — real MediaPipe confidence commonly dips for 1-2 frames right as a pinch opens, which must NOT be mistaken for the hand leaving
+  const SCATTERED_INACTIVITY_MS = 10000;    // ~10s with no hand, or a present-but-still hand, resets the scene
+  const SCATTERED_ACTIVITY_VELOCITY_MIN = 40; // world units/sec — below this a present hand doesn't count as "moving"
+
+  // ---------------------------------------------------------------------
+  // Config — finger-count color
+  // ---------------------------------------------------------------------
+  const FINGER_EXTEND_MIN = 0.55;      // tip-to-knuckle distance / hand size, above this = "extended"
+  const THUMB_EXTEND_MIN = 0.62;
+  const FINGER_COUNT_STABLE_MS = 160;  // a new count has to hold this long before it's trusted (debounces flicker)
+  const COLOR_LERP = 0.06;             // how gently the sphere's hue eases toward the target color
+
+  // ---------------------------------------------------------------------
+  // Config — persistent traces (additive layer on top of everything
+  // above; none of the constants above are touched or read differently)
+  // ---------------------------------------------------------------------
+  const TRACE_STORAGE_KEY = 'inmotion_particle_traces_v1';
+  const MAX_TRACES = 32;
+  const TRACE_RESAMPLE_COUNT = 110;    // points a trace is stored/rendered with, however long the hold was — dense enough that a placed trace reads as a continuous bead trail at its full drawn scale
+
+  // A gesture's path is sampled at this sensitivity while drawing — low
+  // enough to pick up a real hand's natural micro-tremor even during a
+  // stroke held nearly still, so a trace is never just a single dead point. A
+  // hand is never perfectly motionless, and that texture is exactly what
+  // should come through in the replay — it's what makes it feel like a
+  // specific person's hand and not a generic shape.
+  const TRACE_SAMPLE_MIN_DIST = 3;
+  const TRACE_MAX_RAW_POINTS = 220;
+  // (traces are now stored at their true drawn scale — no extent cap — so a
+  // placed trace keeps the size and shape it was dropped at)
+  const TRACE_REST_SPREAD_XY = 190;    // traces live scattered across roughly the same reach as the live sphere
+  const TRACE_REST_SPREAD_Z = 22;
+  const TRACE_MIN_SEPARATION = 55;
+
+  const REVEAL_RADIUS = 46;            // how close an open, still palm needs to be to a dormant trace to wake it
+  const REVEAL_STILL_VELOCITY_MAX = 70;
+  const REVEAL_MIN_FINGERS = 4;        // an open palm for discovery purposes — forgiving, not a strict 5
+  const REVEAL_RISE_SECONDS = 1.0;
+  const REVEAL_FALL_SECONDS = 2.4;
+  const DORMANT_FLOOR = 0.06;
+  // A real, exact hold-duration timer — deliberately NOT derived from
+  // REVEAL_RISE_SECONDS's glow curve. That curve only ever approaches 1
+  // asymptotically, so "done" used to be defined as "close enough" to it
+  // (0.97), which worked out to ~3.4s, not the 2s the caption claimed.
+  // Counting held seconds directly is exact, matches the caption exactly,
+  // and stays correct even if the glow's own easing is retuned later.
+  const REVEAL_HOLD_SECONDS = 2.0;     // continuous open-palm hold required to complete a reveal
+  const LINK_BOOST_FACTOR = 0.5;
+
+  const TRACE_PULSE_WINDOW_MS = 240;   // how wide the "moving light" pulse is around the replay clock
+  const TRACE_REPLAY_PAUSE_MS = 550;   // a beat of stillness between replay loops
+
+  // Layered persistence of finalized traces: every committed trace stays
+  // on screen. The most recent one sits brighter and gently pulses to read
+  // as "newest"; all older ones hold at a dim, static level in the
+  // background. These are steady baselines the reveal brightness rises
+  // ABOVE when a hand hovers — so hovering still resolves/​replays a trace
+  // normally, it just never drops back to invisible once finalized.
+  const TRACE_NEWEST_BASE = 0.5;       // resting brightness floor of the most recent finalized trace — the pulse (below) rises well above this, unmistakably apart from every older trace
+  const TRACE_OLDER_BASE = 0.32;       // resting brightness of the trace right behind the newest
+  const TRACE_OLDEST_FLOOR = 0.07;     // resting brightness traces settle toward as more of them pile up behind the newest
+  const TRACE_DIM_RANK_SPAN = 18;      // how many traces back from newest it takes to reach TRACE_OLDEST_FLOOR — the more that have accumulated, the dimmer the old ones get, so the background never gets crowded
+  const TRACE_SHAPE_FLOOR = 0.88;      // every trace always shows its actual recorded shape, even dormant — this is the floor on that shape-resolve, never the old near-zero "unresolved cluster" look
+  const TRACE_NEWEST_PULSE_AMP = 0.4;  // how far the newest trace's brightness breathes up and down — wide enough to read as an obvious, unmissable pulse, not a subtle shimmer
+  const TRACE_NEWEST_PULSE_SPEED = 2.2;// radians/sec of that breathing pulse
+  const TRACE_REPLAY_REVEAL_MIN = 0.5; // the traveling replay light only runs while a trace is actually being revealed (hovered), so dimmed background traces stay static
+
+  const RESPONSE_WINDOW_MS = 20000;    // how long after revealing a trace a new gesture still counts as answering it
+  const RESPONSE_RADIUS = 70;
+
+  // ---------------------------------------------------------------------
+  // Small utilities
+  // ---------------------------------------------------------------------
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function dist3(a, b) {
+    const dx = a.x - b.x, dy = a.y - b.y, dz = (a.z || 0) - (b.z || 0);
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+  function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+  function easeInOutCubic(x) { return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+  function randomUnitVector3() {
+    let v;
+    do {
+      v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
+    } while (v.lengthSq() < 1e-6);
+    return v.normalize();
+  }
+
+  // ===========================================================================
+  // Scene / renderer / camera
+  // ===========================================================================
+  const canvasEl = document.getElementById('scene');
+  const overlayCanvas = document.getElementById('overlay');
+  const overlayCtx = overlayCanvas.getContext('2d');
+  const videoEl = document.getElementById('webcam');
+  const loadingEl = document.getElementById('loading');
+  const hintEl = document.getElementById('hint');
+  const counterEl = document.getElementById('counter');
+  const toggleCamBtn = document.getElementById('toggleCam');
+  const connectLightBtn = document.getElementById('connectLight');
+
+  // alpha:true + a fully transparent clear lets whatever sits behind the
+  // canvas in the DOM show through — the page's own dark background when
+  // the webcam is off, or the live video feed once it's toggled on. A
+  // solid opaque clear (the previous setup) would paint over the video
+  // every single frame, which is why toggling it on never actually showed
+  // anything.
+  const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x07070a, 0);
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x07070a, 300, 1100);
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 1, 2000);
+  camera.position.set(0, 0, 420);
+
+  function resizeOverlay() {
+    if (!overlayCanvas) return;
+    overlayCanvas.width = window.innerWidth * (window.devicePixelRatio || 1);
+    overlayCanvas.height = window.innerHeight * (window.devicePixelRatio || 1);
+    overlayCanvas.style.width = window.innerWidth + 'px';
+    overlayCanvas.style.height = window.innerHeight + 'px';
+    overlayCtx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+  }
+  function onWindowResize() {
+    // A resize event can fire while the window is transiently zero-size
+    // (a fullscreen/display-mode change, the tab briefly losing layout,
+    // etc.) — if that's taken at face value, camera.aspect becomes
+    // NaN/Infinity and never recovers, since nothing corrects it until the
+    // next resize. Every world-space position derived from it afterward
+    // (drawn dots, drag offsets, and critically a trace's permanent rest
+    // position at the moment it's placed) would be silently poisoned, and
+    // a trace committed in that window is gone for good. Ignore the event
+    // instead and keep the last known-good aspect.
+    if (window.innerWidth === 0 || window.innerHeight === 0) return;
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    resizeOverlay();
+  }
+  window.addEventListener('resize', onWindowResize);
+  resizeOverlay();
+
+  // soft circular sprite for glowy points
+  function makeParticleTexture() {
+    const size = 96;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.18, 'rgba(255,255,255,0.92)');
+    g.addColorStop(0.4, 'rgba(255,255,255,0.45)');
+    g.addColorStop(0.7, 'rgba(255,255,255,0.12)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(c);
+  }
+  const particleTexture = makeParticleTexture();
+
+  function makeGlowTexture() {
+    const size = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255,255,255,0.55)');
+    g.addColorStop(0.35, 'rgba(255,255,255,0.18)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    return new THREE.CanvasTexture(c);
+  }
+  const glowTexture = makeGlowTexture();
+
+  function addGlowLayer(sourcePoints, parent, sizeMult, opacityMult) {
+    const glowMat = new THREE.PointsMaterial({
+      size: sourcePoints.material.size * sizeMult,
+      map: glowTexture,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: true,
+      sizeAttenuation: true,
+      opacity: sourcePoints.material.opacity * opacityMult,
+      fog: true
+    });
+    const glow = new THREE.Points(sourcePoints.geometry, glowMat);
+    parent.add(glow);
+    return glow;
+  }
+
+  // ===========================================================================
+  // The sphere — 3000 particles, each with a rest position on the sphere's
+  // shell and a scattered "exploded" position. A single shared explodeAmount
+  // (0 = sphere, 1 = fully scattered) blends every particle between the two,
+  // so the whole thing reads as one coherent object rather than 3000
+  // independent motes.
+  // ===========================================================================
+  const sphereGroup = new THREE.Group();
+  scene.add(sphereGroup);
+
+  const spherePositions = new Float32Array(PARTICLE_COUNT * 3);
+  const sphereColors = new Float32Array(PARTICLE_COUNT * 3);
+  const restShape = [];   // Vector3[] — the sphere's own shell position
+  const explodeShape = []; // Vector3[] — where this particle scatters to
+  const particleSeed = []; // per-particle timing jitter so the explosion isn't lockstep
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const dir = randomUnitVector3();
+    const r = SPHERE_RADIUS * (0.88 + Math.random() * 0.12);
+    const rest = dir.clone().multiplyScalar(r);
+    restShape.push(rest);
+
+    const scatterDir = dir.clone().multiplyScalar(0.5).add(randomUnitVector3().multiplyScalar(0.5)).normalize();
+    const scatterDist = 260 + Math.random() * 420;
+    explodeShape.push(scatterDir.multiplyScalar(scatterDist));
+
+    particleSeed.push({
+      delay: Math.random() * 0.35,       // 0..0.35 — staggers when each particle starts moving
+      speed: 0.85 + Math.random() * 0.4, // per-particle speed variance
+      phase: Math.random() * Math.PI * 2
+    });
+
+    spherePositions[i * 3] = rest.x;
+    spherePositions[i * 3 + 1] = rest.y;
+    spherePositions[i * 3 + 2] = rest.z;
+  }
+
+  const sphereGeo = new THREE.BufferGeometry();
+  sphereGeo.setAttribute('position', new THREE.BufferAttribute(spherePositions, 3));
+  sphereGeo.setAttribute('color', new THREE.BufferAttribute(sphereColors, 3));
+  const sphereMat = new THREE.PointsMaterial({
+    size: 2.1,
+    map: particleTexture,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexColors: true,
+    sizeAttenuation: true,
+    opacity: 0.95
+  });
+  const sphereMesh = new THREE.Points(sphereGeo, sphereMat);
+  const sphereGlow = addGlowLayer(sphereMesh, sphereGroup, 3, 0.5);
+  sphereGroup.add(sphereMesh);
+
+  // ---------------------------------------------------------------------
+  // Explosion state — a single global sequence (idle -> exploding ->
+  // holding -> reforming -> idle), triggered by any qualifying pinch
+  // release. Re-triggering mid-animation just restarts the scatter phase
+  // from wherever it currently is, so a fast double-charge feels
+  // responsive rather than locked out. 'holding' now flows into
+  // 'scattered' — a resting state with no timeout of its own — rather
+  // than straight into 'reforming'; the scattered particles settle into
+  // a dim backdrop for the drawing flow (see the post-explosion drawing
+  // section) and stay there until either the trace is placed or the
+  // inactivity timer (checkScatteredInactivity) decides the participant
+  // is done, both of which move things into 'reforming'.
+  // ---------------------------------------------------------------------
+  let explodePhase = 'idle';
+  let explodePhaseStartedAt = 0;
+  let explodeAmount = 0;      // 0 = fully formed sphere, 1 = fully scattered (also doubles as the "how hot is the glow" signal across every phase)
+  let explodeStrength = 1;    // how big this particular explosion is (proportional to charge at release)
+  let reformProgress = 0;     // 0..1 during 'reforming' only — the actual position-blend driver back to the sphere shell
+
+  // The drawing session belongs to the scene, not to a specific hand —
+  // either hand can draw, and either hand can later pinch-place the
+  // finished mark. Reset whenever a fresh explosion begins.
+  //
+  // The leave-a-trace state machine. Exactly one state at a time, and
+  // each transition below has a single, non-overlapping trigger:
+  //   idle        the sphere is whole / not in a leave-a-trace flow
+  //     -> drawing        when the explosion settles into 'scattered'
+  //   drawing     right index pointing lays down dots
+  //     -> completing     when finalizeHoldSeconds first rises above 0
+  //                       (a debounced right-open-palm-still hold begins)
+  //     (dots keep landing while pointing)
+  //   completing  right open palm held still, the 2s timer running
+  //     -> drawing        when the hold lapses (grace expires -> hold 0)
+  //     -> finalized      when the hold reaches DRAW_FINALIZE_HOLD_SECONDS
+  //   finalized   trace done, awaiting reposition; no active grab
+  //     -> grabbed        when the LEFT pinch closes within grab range
+  //   grabbed     left pinch carrying the mark
+  //     -> finalized      when the left hand is lost mid-drag
+  //     -> placed         when the left pinch opens (release)
+  //   placed      committed; immediately -> idle (via resetDrawState)
+  // setDrawPhase is the ONLY writer, and logs every real change so the
+  // sequence can be read straight from the console.
+  let drawPhase = 'idle';
+  function setDrawPhase(next) {
+    if (next === drawPhase) return;
+    console.log('[inMotion] trace state: ' + drawPhase + ' -> ' + next);
+    drawPhase = next;
+  }
+  let drawSamples = [];             // [{pos, t, bornAt}] — the dots, in draw order
+  let drawStartedAt = 0;
+  let lastDrawTip = null;           // world pos of the last fingertip sample (persists across a 1-2 frame dropout so the gap can be bridged)
+  let lastDrawTipAt = 0;            // when that sample was taken — a gap longer than DRAW_BRIDGE_MAX_MS starts fresh instead of bridging
+  let finalizeHoldSeconds = 0;      // continuous still-open-palm time toward finishing the drawing
+  let finalizeBreakFrames = 0;      // consecutive ambiguous frames tolerated before the hold resets (debounce)
+  let drawFinalizedAt = 0;          // for the settle-glow flourish on finish
+  const drawCentroid = new THREE.Vector3(); // the finished mark's own center, where it was drawn
+  const markOffset = new THREE.Vector3();   // how far the pinch-drag has moved it from there
+  let placeGrab = null;             // { hand, startHandPos, offsetAtStart } while pinch-dragging
+  const placePinchPrev = { Right: false, Left: false }; // own pinch hysteresis, independent of charge state
+  let placeLostFrames = 0;          // consecutive frames the left hand has gone untracked while grabbed
+  let lastScatteredActivityAt = 0;
+
+  function triggerExplode(strength) {
+    explodePhase = 'exploding';
+    explodePhaseStartedAt = performance.now();
+    explodeStrength = clamp(strength, CHARGE_MIN_TO_EXPLODE, 1);
+    resetDrawState(); // a re-explosion mid-flow discards the in-progress drawing
+  }
+
+  function updateExplode(now, dt) {
+    if (explodePhase === 'idle' || explodePhase === 'scattered') return;
+    const elapsed = now - explodePhaseStartedAt;
+
+    if (explodePhase === 'exploding') {
+      const t = clamp(elapsed / EXPLODE_OUT_MS, 0, 1);
+      explodeAmount = easeOutCubic(t) * explodeStrength;
+      if (t >= 1) { explodePhase = 'holding'; explodePhaseStartedAt = now; }
+    } else if (explodePhase === 'holding') {
+      if (elapsed >= EXPLODE_HOLD_MS) {
+        explodePhase = 'scattered';
+        explodePhaseStartedAt = now;
+        resetDrawState();
+        setDrawPhase('drawing');
+        drawStartedAt = now;
+        lastScatteredActivityAt = now;
+      }
+    } else if (explodePhase === 'reforming') {
+      const t = clamp(elapsed / EXPLODE_REFORM_MS, 0, 1);
+      reformProgress = easeInOutCubic(t);
+      explodeAmount = (1 - reformProgress) * explodeStrength;
+      if (t >= 1) { explodePhase = 'idle'; explodeAmount = 0; reformProgress = 0; }
+    }
+  }
+
+  let currentHue = 30; // warm gold at rest, the same accent as the rest of the UI
+
+  function updateSphereVisual(t) {
+    const posAttr = sphereGeo.attributes.position;
+    const colAttr = sphereGeo.attributes.color;
+    const breathe = 0.5 + 0.5 * Math.sin(t * 0.6);
+    const flash = explodeAmount; // particles run a little hotter mid-explosion
+
+    const color = new THREE.Color().setHSL(currentHue / 360, 0.65, 0.58 + flash * 0.12);
+    // Once finalized traces exist, the idle sphere is only the "ready" state
+    // and must sit BEHIND them: dim it to a recessive backdrop while idle /
+    // reforming so a trace dropped near the centre reads clearly in front
+    // instead of being swamped by the 3000 same-coloured sphere particles.
+    // Full brightness is kept during exploding/holding/scattered, when the
+    // sphere itself is the thing being acted on.
+    const recessive = traces.length > 0 && (explodePhase === 'idle' || explodePhase === 'reforming');
+    const sphereDim = recessive ? SPHERE_BEHIND_TRACES_DIM : 1;
+    const baseB = (0.72 + 0.28 * breathe) * (1 + flash * 0.9) * sphereDim;
+    const settled = explodePhase === 'scattered' || explodePhase === 'reforming';
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const seed = particleSeed[i];
+      const rest = restShape[i], out = explodeShape[i];
+      let px, py, pz, b;
+
+      if (!settled) {
+        // 'idle' and 'exploding' — kept exactly as before
+        const local = clamp((explodeAmount - seed.delay * 0.4) * seed.speed, 0, 1);
+        const wobbleX = Math.sin(t * 0.4 + seed.phase) * (1 - local) * 1.6;
+        const wobbleY = Math.cos(t * 0.35 + seed.phase * 1.3) * (1 - local) * 1.6;
+        px = lerp(rest.x, rest.x + out.x, local) + wobbleX;
+        py = lerp(rest.y, rest.y + out.y, local) + wobbleY;
+        pz = lerp(rest.z, rest.z + out.z, local);
+        b = baseB;
+      } else {
+        // 'scattered' and 'reforming' — this particle's own settled
+        // scatter position, i.e. its local value frozen at the exact
+        // point 'holding' ended (explodeStrength, not the live
+        // explodeAmount, which reforming is now busy easing back down)
+        const local = clamp((explodeStrength - seed.delay * 0.4) * seed.speed, 0, 1);
+        const scatterX = lerp(rest.x, rest.x + out.x, local);
+        const scatterY = lerp(rest.y, rest.y + out.y, local);
+        const scatterZ = lerp(rest.z, rest.z + out.z, local);
+
+        // scattered particles are a quiet ambient backdrop while the
+        // participant draws — a slow drift so the field doesn't read as
+        // dead, dimmed well below the live sphere so the drawn trail is
+        // unmistakably the bright thing in the room
+        const sourceX = scatterX + Math.sin(t * 0.15 + seed.phase) * 2.5;
+        const sourceY = scatterY + Math.cos(t * 0.13 + seed.phase * 1.4) * 2.5;
+        const sourceZ = scatterZ;
+
+        if (explodePhase === 'scattered') {
+          px = sourceX; py = sourceY; pz = sourceZ;
+        } else {
+          // 'reforming' — every particle eases from wherever it sits
+          // back to the sphere shell
+          px = lerp(sourceX, rest.x, reformProgress);
+          py = lerp(sourceY, rest.y, reformProgress);
+          pz = lerp(sourceZ, rest.z, reformProgress);
+        }
+
+        b = baseB * 0.28;
+        if (explodePhase === 'reforming') b = lerp(b, baseB, reformProgress);
+      }
+
+      posAttr.setXYZ(i, px, py, pz);
+      colAttr.setXYZ(i, color.r * b, color.g * b, color.b * b);
+    }
+    posAttr.needsUpdate = true;
+    colAttr.needsUpdate = true;
+
+    // the glow halo is what actually reads as "the sphere" from a
+    // distance — it was never dimmed along with the core particles above,
+    // so even a correctly-dimmed sphere still looked like the dominant,
+    // active thing in the room the moment a trace was released behind it
+    sphereGlow.material.opacity = clamp(0.4 + flash * 0.35, 0, 0.85) * sphereDim;
+  }
+
+  // ===========================================================================
+  // Hand geometry helpers
+  // ===========================================================================
+  function palmCenter(lm) {
+    const idxs = [0, 5, 9, 13, 17];
+    let x = 0, y = 0, z = 0;
+    idxs.forEach((i) => { x += lm[i].x; y += lm[i].y; z += lm[i].z || 0; });
+    return { x: x / idxs.length, y: y / idxs.length, z: z / idxs.length };
+  }
+  function handSizeOf(lm) {
+    return dist3(lm[0], lm[9]) || 0.001;
+  }
+
+  // The one hand -> world mapping used everywhere. It places a normalized
+  // MediaPipe landmark onto the z=0 plane at exactly the world point that
+  // the camera projects back to that landmark's mirrored on-screen
+  // position — i.e. projectToScreen(landmarkToPlaneWorld(pt)) lands on the
+  // very pixel where drawHandSkeleton draws that landmark: (1-x)*W, y*H.
+  // Deriving it from the live camera (fov, aspect, distance to the plane)
+  // instead of a fixed MOVE_RANGE is what makes a drawn dot sit under the
+  // fingertip rather than drifting inward with the window's aspect ratio,
+  // and it keeps dots, the pinch-grab, reveal proximity and the HUD rings
+  // all in a single coordinate space so none of them can offset from each
+  // other. z=0 is exact for these flat marks; the camera looks straight
+  // down -z at the origin, so the plane is a simple linear remap.
+  function landmarkToPlaneWorld(pt) {
+    const dist = camera.position.z;                 // camera is at +z looking at the z=0 plane
+    const halfH = dist * Math.tan((camera.fov * Math.PI / 180) / 2);
+    // defense in depth: a non-finite/zero aspect (see onWindowResize) must
+    // never leak NaN into a dot, a drag offset, or — worst case — a
+    // trace's permanent rest position at the moment it's placed, which
+    // would silently and permanently make that trace unrenderable
+    const aspect = (camera.aspect > 0 && isFinite(camera.aspect)) ? camera.aspect : 1;
+    const halfW = halfH * aspect;
+    return new THREE.Vector3(halfW * (1 - 2 * pt.x), halfH * (1 - 2 * pt.y), 0);
+  }
+  function handWorldPos(lm) {
+    return landmarkToPlaneWorld(palmCenter(lm));
+  }
+  // The index fingertip (landmark 8) itself — the exact point a drawn dot
+  // spawns at, so the trail originates under the finger, not offset from it.
+  function indexTipWorld(lm) {
+    return landmarkToPlaneWorld(lm[8]);
+  }
+  // The pinch point: where thumb tip (4) and index tip (8) meet. Used as
+  // the left hand's grab anchor so grabbing and dragging track the visible
+  // pinch, in the same space as the mark it's moving.
+  function pinchPointWorld(lm) {
+    return landmarkToPlaneWorld({ x: (lm[4].x + lm[8].x) / 2, y: (lm[4].y + lm[8].y) / 2 });
+  }
+
+  const FINGER_TIPS = [8, 12, 16, 20];
+  const FINGER_MCPS = [5, 9, 13, 17];
+  function countExtendedFingers(lm) {
+    const size = handSizeOf(lm);
+    let count = 0;
+    for (let i = 0; i < 4; i++) {
+      const d = dist3(lm[FINGER_TIPS[i]], lm[FINGER_MCPS[i]]);
+      if (d / size >= FINGER_EXTEND_MIN) count++;
+    }
+    // the thumb extends sideways rather than along the palm axis, so it's
+    // judged against its own distance from the index knuckle instead
+    const thumbD = dist3(lm[4], lm[2]);
+    if (thumbD / size >= THUMB_EXTEND_MIN) count++;
+    return count;
+  }
+
+  function hueForFingerCount(count) {
+    // a curated sweep (cool blue -> violet -> warm coral) across 0..5
+    // fingers, rather than the full rainbow — reads as one coherent
+    // palette regardless of which count you land on
+    const h = 210 - (count / 5) * 250;
+    return ((h % 360) + 360) % 360;
+  }
+
+  // ===========================================================================
+  // Per-hand state — MediaPipe's handedness label is used purely as a
+  // stable per-hand key across frames here; nothing in this piece assigns
+  // different behavior to left vs. right.
+  // ===========================================================================
+  function makeHandState() {
+    return {
+      lastWorldPos: null,
+      chargeProgress: 0,
+      wasPinching: false,
+      fingerCount: 0,
+      fingerCountCandidate: 0,
+      fingerCountCandidateSince: 0,
+      // trace discovery (Layer 3) — tracked independently of lastWorldPos
+      // above so this addition can never affect the existing rotation math
+      revealLastWorldPos: null,
+      // scattered-phase activity (post-explosion inactivity clock) —
+      // likewise its own independent velocity tracker
+      scatterLastWorldPos: null,
+      // finish-hold stillness (post-explosion drawing) — its own tracker
+      // for the same reason as the two above
+      drawStillLastWorldPos: null,
+      // consecutive frames the hand has held the pointing pose — dots
+      // only land once this clears DRAW_POSE_STABLE_FRAMES
+      pointingFrames: 0
+    };
+  }
+  const handStates = { Left: makeHandState(), Right: makeHandState() };
+
+  let currentLeftLm = null;
+  let currentRightLm = null;
+
+  function updateFingerCount(state, lm, now) {
+    const raw = countExtendedFingers(lm);
+    if (raw !== state.fingerCountCandidate) {
+      state.fingerCountCandidate = raw;
+      state.fingerCountCandidateSince = now;
+    } else if (now - state.fingerCountCandidateSince >= FINGER_COUNT_STABLE_MS) {
+      state.fingerCount = raw;
+    }
+  }
+
+  // Returns { pinching, releasedWithCharge } so the caller can decide
+  // whether this hand's release should trigger the shared explosion. A
+  // trace is no longer captured from the pinch-hold itself — see the
+  // post-explosion drawing section, where the trace is now drawn
+  // directly — so this is back to exactly its original charge/pinch
+  // logic.
+  function updatePinchCharge(state, lm, dt) {
+    const ratio = dist3(lm[4], lm[8]) / handSizeOf(lm);
+    const pinching = state.wasPinching ? ratio < PINCH_RATIO_OFF : ratio < PINCH_RATIO_ON;
+
+    let releasedWithCharge = 0;
+    if (pinching) {
+      state.chargeProgress = clamp(state.chargeProgress + dt * 1000 / CHARGE_DURATION_MS, 0, 1);
+    } else {
+      if (state.wasPinching && state.chargeProgress >= CHARGE_MIN_TO_EXPLODE) {
+        releasedWithCharge = state.chargeProgress;
+      }
+      state.chargeProgress = Math.max(0, state.chargeProgress - (dt * 1000 / CHARGE_DURATION_MS) * CHARGE_DECAY_MULT);
+    }
+    state.wasPinching = pinching;
+    return { pinching, releasedWithCharge };
+  }
+
+  // ===========================================================================
+  // Charge ring — drawn on the 2D overlay at the pinching hand's projected
+  // screen position, filling clockwise as chargeProgress rises. Cleared and
+  // redrawn every frame alongside the hand skeleton.
+  // ===========================================================================
+  function projectToScreen(worldPos) {
+    const v = worldPos.clone().project(camera);
+    return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+  }
+
+  function drawChargeRing(screenPos, progress) {
+    const radius = 26;
+    overlayCtx.save();
+    overlayCtx.translate(screenPos.x, screenPos.y);
+
+    overlayCtx.beginPath();
+    overlayCtx.arc(0, 0, radius, 0, Math.PI * 2);
+    overlayCtx.strokeStyle = 'rgba(217, 178, 106, 0.18)';
+    overlayCtx.lineWidth = 2;
+    overlayCtx.stroke();
+
+    overlayCtx.beginPath();
+    overlayCtx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+    overlayCtx.strokeStyle = 'rgba(217, 178, 106, 0.95)';
+    overlayCtx.lineWidth = 3;
+    overlayCtx.lineCap = 'round';
+    overlayCtx.shadowColor = 'rgba(217, 178, 106, 0.85)';
+    overlayCtx.shadowBlur = 10;
+    overlayCtx.stroke();
+
+    overlayCtx.restore();
+  }
+
+  // ---------------------------------------------------------------------
+  // Hand skeleton — drawn only while the webcam background is off, so
+  // there's still visible feedback for where each hand is tracked.
+  // ---------------------------------------------------------------------
+  const HAND_CONNECTIONS = [
+    [0, 1], [1, 2], [2, 3], [3, 4],
+    [0, 5], [5, 6], [6, 7], [7, 8],
+    [5, 9], [9, 10], [10, 11], [11, 12],
+    [9, 13], [13, 14], [14, 15], [15, 16],
+    [13, 17], [17, 18], [18, 19], [19, 20],
+    [0, 17]
+  ];
+  // the five fingertips (thumb, index, middle, ring, pinky) are the only
+  // landmarks that actually drive anything — pinch, charge, finger count —
+  // so they're the only ones picked out in the accent gold; every other
+  // joint (wrist, knuckles, mid-joints) stays a quiet structural gray
+  const FINGERTIP_LANDMARKS = new Set([4, 8, 12, 16, 20]);
+
+  // Fingertip indicator colors. Gold = default (sphere-moving) mode;
+  // cyan = draw mode, shown only on the fingertip passed as highlightTip
+  // so the two modes are distinguishable at a glance.
+  const TIP_GOLD = 'rgba(217, 178, 106, 0.95)', TIP_GOLD_GLOW = 'rgba(217, 178, 106, 0.85)';
+  const TIP_DRAW = 'rgba(90, 212, 236, 0.98)', TIP_DRAW_GLOW = 'rgba(90, 212, 236, 0.9)';
+
+  function drawHandSkeleton(lm, highlightTip) {
+    overlayCtx.save();
+    overlayCtx.strokeStyle = 'rgba(210, 213, 222, 0.32)';
+    overlayCtx.lineWidth = 1.25;
+    overlayCtx.beginPath();
+    for (const [a, b] of HAND_CONNECTIONS) {
+      const pa = lm[a], pb = lm[b];
+      const sx1 = (1 - pa.x) * window.innerWidth, sy1 = pa.y * window.innerHeight;
+      const sx2 = (1 - pb.x) * window.innerWidth, sy2 = pb.y * window.innerHeight;
+      overlayCtx.moveTo(sx1, sy1);
+      overlayCtx.lineTo(sx2, sy2);
+    }
+    overlayCtx.stroke();
+
+    overlayCtx.fillStyle = 'rgba(210, 213, 222, 0.75)';
+    overlayCtx.shadowBlur = 0;
+    for (let i = 0; i < lm.length; i++) {
+      if (FINGERTIP_LANDMARKS.has(i)) continue;
+      const sx = (1 - lm[i].x) * window.innerWidth, sy = lm[i].y * window.innerHeight;
+      overlayCtx.beginPath();
+      overlayCtx.arc(sx, sy, 2, 0, Math.PI * 2);
+      overlayCtx.fill();
+    }
+
+    for (const i of FINGERTIP_LANDMARKS) {
+      const drawMode = i === highlightTip;
+      overlayCtx.fillStyle = drawMode ? TIP_DRAW : TIP_GOLD;
+      overlayCtx.shadowColor = drawMode ? TIP_DRAW_GLOW : TIP_GOLD_GLOW;
+      overlayCtx.shadowBlur = drawMode ? 12 : 8;
+      const sx = (1 - lm[i].x) * window.innerWidth, sy = lm[i].y * window.innerHeight;
+      overlayCtx.beginPath();
+      overlayCtx.arc(sx, sy, drawMode ? 7 : 5, 0, Math.PI * 2);
+      overlayCtx.fill();
+    }
+    overlayCtx.restore();
+  }
+
+  function drawOverlay() {
+    overlayCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    if (camVisible) return;
+    // the RIGHT index fingertip turns cyan exactly while it's actively
+    // drawing — same condition that lays dots and shows the "point one
+    // finger and draw" caption, so the color can't fall out of sync with
+    // the mode. Every other fingertip (and the whole left hand) stays gold.
+    const rightDrawTip = (explodePhase === 'scattered' &&
+      (drawPhase === 'drawing' || drawPhase === 'completing') &&
+      currentRightLm && isRightPointing(currentRightLm)) ? 8 : -1;
+    if (currentRightLm) drawHandSkeleton(currentRightLm, rightDrawTip);
+    if (currentLeftLm) drawHandSkeleton(currentLeftLm, -1);
+    if (currentRightLm) {
+      const rs = handStates.Right;
+      if (rs.chargeProgress > 0.02) drawChargeRing(projectToScreen(handWorldPos(currentRightLm)), rs.chargeProgress);
+    }
+    if (currentLeftLm) {
+      const ls = handStates.Left;
+      if (ls.chargeProgress > 0.02) drawChargeRing(projectToScreen(handWorldPos(currentLeftLm)), ls.chargeProgress);
+    }
+
+    // The finalize hold gets the same ring the pinch-charge uses — one
+    // consistent visual language for "how close is this held gesture to
+    // done." Shown during the 'completing' state (right open palm held
+    // still), at the right palm.
+    if (explodePhase === 'scattered' && drawPhase === 'completing' && currentRightLm) {
+      drawChargeRing(projectToScreen(handWorldPos(currentRightLm)), clamp(finalizeHoldSeconds / DRAW_FINALIZE_HOLD_SECONDS, 0, 1));
+    }
+  }
+
+  // ===========================================================================
+  // Per-frame hand-driven sphere control
+  //   - one hand: sphere follows it, and the hand's own movement adds spin
+  //   - two hands: their midpoint positions the sphere, their spread scales it
+  //   - either hand's pinch can charge and trigger the shared explosion
+  //   - whichever hand is present contributes its finger count to the color
+  //     target (if both are present, the higher count wins — reads as "how
+  //     many fingers am I showing," not an average)
+  // ===========================================================================
+  let targetScale = 1;
+  let currentScale = 1;
+
+  // The bottom hint always shows something — it never fades away for
+  // good — because it isn't onboarding copy, it's a live readout of which
+  // mode the current hand(s) put the piece into. The finger/hand counter
+  // next to it is the same idea in numbers rather than words, and empties
+  // out (not just fades) the instant nothing is tracked.
+  //
+  // This is the base layer of a three-tier override cascade, lowest
+  // priority first — each later tier in animate() below overwrites this
+  // frame's hint if its own, more specific condition currently holds:
+  //   1. (here) baseline: what does the current hand count/pose suggest
+  //   2. updateDrawHint(), if a drawing session is in progress
+  //      (explodePhase === 'scattered') — one prompt per step of the
+  //      draw / finish / place flow
+  //   3. updateRevealHint(anyRevealing), if the hand is close enough to
+  //      an existing dormant trace to be actively revealing it right now
+  //      — "near a trace" is exactly updateReveal()'s own eligibility
+  //      check (open palm, held still, within REVEAL_RADIUS of the
+  //      nearest dormant trace); animate() collects that into
+  //      targetedIds each frame and passes targetedIds.size > 0 as
+  //      anyRevealing. Tier 3 always wins because it runs last, so a
+  //      participant standing still near a trace always sees the reveal
+  //      prompt no matter what this baseline (or the scattered-phase
+  //      tier) would otherwise say — the two can never show at once.
+  //
+  // Below the two-hand and mid-charge cases (already specific, real-time
+  // feedback about a gesture actually in progress), a hand that either
+  // isn't present yet or hasn't started a pinch yet is, for a first-time
+  // participant, functionally "hasn't left a trace" — so both collapse
+  // to the same forward-looking prompt rather than the old, more literal
+  // "show one hand" / "move to shift · pinch to charge" pair, which
+  // described the controls without ever saying what they're for.
+  function updateHintText(right, left, rightState, leftState) {
+    let hint;
+    if (right && left) {
+      hint = 'spread hands apart to grow · bring together to shrink';
+    } else if ((right || left) && (right ? rightState : leftState).wasPinching) {
+      hint = 'hold to charge — release to let go';
+    } else {
+      hint = 'make a gesture, then hold to leave your trace';
+    }
+    if (hintEl.textContent !== hint) hintEl.textContent = hint;
+
+    const handCount = (right ? 1 : 0) + (left ? 1 : 0);
+    if (handCount === 0) {
+      if (counterEl.textContent !== '') counterEl.textContent = '';
+      return;
+    }
+    const totalFingers = (right ? rightState.fingerCount : 0) + (left ? leftState.fingerCount : 0);
+    const fingerWord = totalFingers === 1 ? 'finger' : 'fingers';
+    const handWord = handCount === 1 ? 'hand' : 'hands';
+    counterEl.innerHTML = `<b>${totalFingers}</b> ${fingerWord} · <b>${handCount}</b> ${handWord}`;
+  }
+
+  function updateHands(now, dt) {
+    const right = currentRightLm, left = currentLeftLm;
+    const rightState = handStates.Right, leftState = handStates.Left;
+
+    // The explosion is strictly an IDLE-phase action: a pinch-charge
+    // release only breaks the sphere open when the scene is idle. Once
+    // the leave-a-trace flow is underway (exploding/holding/scattered/
+    // reforming) no pinch can re-explode — which is what keeps a left
+    // pinch that misses the finalized mark, or any stray pinch, from
+    // blowing the participant's trace away mid-flow. updatePinchCharge
+    // still runs so wasPinching stays accurate for the draw/place gesture
+    // checks, but the charge ring is zeroed off-idle so it never shows
+    // during drawing or placement.
+    if (right) {
+      const { releasedWithCharge } = updatePinchCharge(rightState, right, dt);
+      if (explodePhase === 'idle') { if (releasedWithCharge > 0) triggerExplode(releasedWithCharge); }
+      else rightState.chargeProgress = 0;
+      updateFingerCount(rightState, right, now);
+    } else {
+      rightState.chargeProgress = Math.max(0, rightState.chargeProgress - dt * 2);
+      rightState.wasPinching = false;
+    }
+    if (left) {
+      const { releasedWithCharge } = updatePinchCharge(leftState, left, dt);
+      if (explodePhase === 'idle') { if (releasedWithCharge > 0) triggerExplode(releasedWithCharge); }
+      else leftState.chargeProgress = 0;
+      updateFingerCount(leftState, left, now);
+    } else {
+      leftState.chargeProgress = Math.max(0, leftState.chargeProgress - dt * 2);
+      leftState.wasPinching = false;
+    }
+
+    updateHintText(right, left, rightState, leftState);
+
+    // color target: whichever tracked hand is currently showing more
+    // fingers drives the hue; with no hands, the last color simply holds
+    let targetCount = null;
+    if (right) targetCount = rightState.fingerCount;
+    if (left) targetCount = targetCount === null ? leftState.fingerCount : Math.max(targetCount, leftState.fingerCount);
+    if (targetCount !== null) {
+      const targetHue = hueForFingerCount(targetCount);
+      // shortest-path hue lerp so it doesn't spin the long way round the wheel
+      let diff = ((targetHue - currentHue + 540) % 360) - 180;
+      currentHue = (currentHue + diff * COLOR_LERP + 360) % 360;
+    }
+
+    // Once particles are scattered, the field has to actually stay put in
+    // the world for a hand to reach into it — position/rotation are group-
+    // wide transforms, so if the group kept re-centering on the hand (as
+    // it does for the live sphere), every scattered particle would remain
+    // exactly as far from the hand as it started, no matter which way the
+    // hand moved. So: position and rotation freeze for as long as the
+    // field is scattered or reforming; lastWorldPos bookkeeping still runs
+    // underneath so rotation resumes cleanly, un-jumped, once it's live
+    // again. Two-hand scale is left alone — resizing a stationary field
+    // doesn't create the same problem, and "grow/shrink, always" is
+    // exactly what's meant to keep working unchanged.
+    const groupTransformFrozen = explodePhase === 'scattered' || explodePhase === 'reforming';
+
+    if (right && left) {
+      // two hands: midpoint positions, spread scales
+      const rw = handWorldPos(right), lw = handWorldPos(left);
+      const mid = rw.clone().add(lw).multiplyScalar(0.5);
+      if (!groupTransformFrozen) sphereGroup.position.lerp(mid, POSITION_LERP);
+
+      const spread = rw.distanceTo(lw);
+      targetScale = clamp(spread / SCALE_REFERENCE_SPREAD, SCALE_MIN, SCALE_MAX);
+
+      rightState.lastWorldPos = rw;
+      leftState.lastWorldPos = lw;
+    } else if (right || left) {
+      // one hand: follow it, and let its own movement spin the sphere
+      const lm = right || left;
+      const state = right ? rightState : leftState;
+      const world = handWorldPos(lm);
+      if (!groupTransformFrozen) sphereGroup.position.lerp(world, POSITION_LERP);
+
+      if (!groupTransformFrozen && state.lastWorldPos && world.distanceTo(state.lastWorldPos) <= MAX_ROTATE_JUMP) {
+        const delta = world.clone().sub(state.lastWorldPos);
+        sphereGroup.rotation.y += delta.x * ROTATE_FACTOR;
+        sphereGroup.rotation.x += -delta.y * ROTATE_FACTOR;
+      }
+      state.lastWorldPos = world;
+
+      // the other hand's stale position shouldn't produce a spin spike
+      // the moment it reappears
+      (right ? leftState : rightState).lastWorldPos = null;
+    } else {
+      rightState.lastWorldPos = null;
+      leftState.lastWorldPos = null;
+      if (!groupTransformFrozen) sphereGroup.position.lerp(new THREE.Vector3(0, 0, 0), 0.02);
+    }
+
+    currentScale = lerp(currentScale, targetScale, SCALE_LERP);
+    sphereGroup.scale.setScalar(currentScale);
+
+    // always-on idle spin, on top of anything hand-driven above — also
+    // paused while frozen, for the same reason as position/rotation above
+    if (!groupTransformFrozen) sphereGroup.rotation.y += IDLE_SPIN;
+  }
+
+  // ===========================================================================
+  // Post-explosion drawing — what happens between "explosion" and "back
+  // to idle sphere". The scattered particles stay put as a dim backdrop;
+  // the trace itself is drawn directly: a pointing index fingertip leaves
+  // a trail of glowing dots along its path in real time (sampled with the
+  // same TRACE_SAMPLE_MIN_DIST / TRACE_MAX_RAW_POINTS budget every trace
+  // has always used), an open palm held still for
+  // DRAW_FINALIZE_HOLD_SECONDS finishes it, and a pinch that starts over
+  // the finished mark picks it up so it can be placed anywhere before
+  // the pinch is released — and it's that release that commits the trace.
+  // ===========================================================================
+
+  // The live trail — one Points object, preallocated to the raw-path
+  // budget, drawRange advanced as dots land. World-space (added to the
+  // scene, not the sphere group) so it stays exactly where it was drawn
+  // regardless of anything the sphere does.
+  const drawTrailGeo = new THREE.BufferGeometry();
+  drawTrailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRACE_MAX_RAW_POINTS * 3), 3));
+  drawTrailGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(TRACE_MAX_RAW_POINTS * 3), 3));
+  drawTrailGeo.setDrawRange(0, 0);
+  const drawTrailMat = new THREE.PointsMaterial({
+    size: 6.5,
+    map: particleTexture,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexColors: true,
+    sizeAttenuation: true,
+    opacity: 1
+  });
+  const drawTrailPoints = new THREE.Points(drawTrailGeo, drawTrailMat);
+  drawTrailPoints.visible = false;
+  scene.add(drawTrailPoints);
+  const drawTrailGlow = addGlowLayer(drawTrailPoints, scene, 2.2, 0.7); // shares the geometry, so drawRange applies to both
+  drawTrailGlow.visible = false;
+
+  function resetDrawState() {
+    setDrawPhase('idle');
+    drawSamples = [];
+    lastDrawTip = null;
+    lastDrawTipAt = 0;
+    finalizeHoldSeconds = 0;
+    finalizeBreakFrames = 0;
+    placeGrab = null;
+    placeLostFrames = 0;
+    markOffset.set(0, 0, 0);
+    placePinchPrev.Right = false;
+    placePinchPrev.Left = false;
+    handStates.Right.pointingFrames = 0;
+    handStates.Right.drawStillLastWorldPos = null;
+    drawTrailGeo.setDrawRange(0, 0);
+    drawTrailPoints.visible = false;
+    drawTrailGlow.visible = false;
+  }
+
+  // The RIGHT-hand drawing pose: index clearly extended and the hand not
+  // an open palm. Deliberately lenient about the other fingers (real
+  // pointing hands rarely curl middle/ring fully, and MediaPipe is noisy
+  // there) — the only hard exclusion is the open palm, because that's the
+  // finalize gesture. Since the right hand is the ONLY hand that draws,
+  // and the left is the ONLY hand that pinches to place, there is no
+  // draw-vs-pinch ambiguity to guard against here.
+  function isRightPointing(lm, sustaining) {
+    const size = handSizeOf(lm);
+    const minRatio = sustaining ? FINGER_EXTEND_SUSTAIN_MIN : FINGER_EXTEND_MIN;
+    const indexExtended = dist3(lm[8], lm[5]) / size >= minRatio;
+    return indexExtended && !isOpenEnoughToReveal(lm);
+  }
+
+  function currentMarkCenter() {
+    return drawCentroid.clone().add(markOffset);
+  }
+
+  function updateDrawing(now, dt) {
+    if (explodePhase !== 'scattered') return;
+
+    if (drawPhase === 'drawing' || drawPhase === 'completing') {
+      updateRightHandDrawing(now, dt);
+    } else if (drawPhase === 'finalized' || drawPhase === 'grabbed') {
+      updateLeftHandPlacement(now);
+    }
+  }
+
+  // Drawing + finalizing — RIGHT hand ONLY. The left hand's landmarks are
+  // never consulted here, so the left hand can never draw a dot or start
+  // (or interfere with) the finalize hold. Each frame the right hand is in
+  // exactly one of three buckets — pointing, open-palm-still, or ambiguous
+  // — and those buckets never overlap, which is what keeps 'drawing' and
+  // 'completing' from fighting.
+  function updateRightHandDrawing(now, dt) {
+    const lm = currentRightLm;
+    const state = handStates.Right;
+
+    const pointing = !!lm && !state.wasPinching && isRightPointing(lm, drawSamples.length > 0);
+    const openStill = (() => {
+      if (!lm || state.wasPinching || !isOpenEnoughToReveal(lm) || drawSamples.length < DRAW_MIN_DOTS) {
+        state.drawStillLastWorldPos = null; return false;
+      }
+      const world = handWorldPos(lm);
+      const velocity = state.drawStillLastWorldPos
+        ? world.distanceTo(state.drawStillLastWorldPos) / Math.max(dt, 0.001) : 0;
+      state.drawStillLastWorldPos = world.clone();
+      return velocity <= DRAW_FINALIZE_STILL_VELOCITY_MAX;
+    })();
+
+    if (pointing) {
+      // POINTING — lay dots at the exact index fingertip, and this is an
+      // unambiguous "not holding", so the finalize hold drops immediately.
+      finalizeHoldSeconds = 0;
+      finalizeBreakFrames = 0;
+      state.pointingFrames = (state.pointingFrames || 0) + 1;
+      // the stability gate only guards the FIRST dot of a stroke (so the
+      // pinch-relax that triggered the explosion can't stamp a stray dot);
+      // once a stroke is underway, a brief dropout must resume instantly so
+      // the bridge can fill it, not wait to re-stabilize
+      const stabilityMet = state.pointingFrames >= DRAW_POSE_STABLE_FRAMES || drawSamples.length > 0;
+      if (stabilityMet) {
+        addDrawDots(indexTipWorld(lm), now);
+        lastScatteredActivityAt = now;
+      }
+    } else if (openStill) {
+      // OPEN PALM, HELD STILL — accrue the completion hold.
+      state.pointingFrames = 0;
+      finalizeBreakFrames = 0;
+      finalizeHoldSeconds += dt;
+      lastScatteredActivityAt = now; // a deliberate hold is activity even though the hand is still
+      if (finalizeHoldSeconds >= DRAW_FINALIZE_HOLD_SECONDS) {
+        finalizeTrace(now);
+        return;
+      }
+    } else {
+      // AMBIGUOUS — jitter, a half-formed pose, a brief dropout. Keep any
+      // hold-in-progress alive for a short grace so the completing state
+      // and its caption don't flicker; only give up after the grace.
+      state.pointingFrames = 0;
+      if (finalizeHoldSeconds > 0 && ++finalizeBreakFrames > DRAW_FINALIZE_GRACE_FRAMES) {
+        finalizeHoldSeconds = 0;
+        finalizeBreakFrames = 0;
+      }
+    }
+
+    // the sole state condition, evaluated once from the hold timer
+    setDrawPhase(finalizeHoldSeconds > 0 ? 'completing' : 'drawing');
+  }
+
+  // Places dots for this frame's fingertip. Keeps the trail a set of
+  // DISTINCT dots (never a solid line) but at a CONSISTENT spacing
+  // regardless of hand speed: if the fingertip moved far since the last
+  // sample — a fast stroke, or a 1-2 frame tracking dropout where the
+  // finger kept moving unseen — it interpolates evenly spaced dots across
+  // the gap instead of leaving a hole. A gap older than DRAW_BRIDGE_MAX_MS
+  // (a real pause / long dropout) is NOT bridged — it just starts a fresh
+  // dot, so the trail never draws a stray line across the whole screen.
+  function addDrawDots(tip, now) {
+    const bridgeable = lastDrawTip && (now - lastDrawTipAt) <= DRAW_BRIDGE_MAX_MS;
+    if (!bridgeable) {
+      // fresh start (first dot of the stroke, or after a long gap)
+      if (drawSamples.length < TRACE_MAX_RAW_POINTS) {
+        drawSamples.push({ pos: tip.clone(), t: now - drawStartedAt, bornAt: now });
+      }
+      lastDrawTip = tip.clone();
+      lastDrawTipAt = now;
+      return;
+    }
+    const d = lastDrawTip.distanceTo(tip);
+    if (d < DRAW_SAMPLE_MIN_DIST) {
+      // barely moved — keep the bridge timer fresh, but don't stamp a dot
+      // right on top of the last one (measuring from the last PLACED dot)
+      lastDrawTipAt = now;
+      return;
+    }
+    // one dot every DRAW_SAMPLE_MIN_DIST along the gap, so density is the
+    // same whether the hand crept or flew between frames
+    const segs = Math.min(Math.round(d / DRAW_SAMPLE_MIN_DIST), DRAW_MAX_BRIDGE_DOTS);
+    for (let i = 1; i <= segs; i++) {
+      if (drawSamples.length >= TRACE_MAX_RAW_POINTS) break;
+      const p = lastDrawTip.clone().lerp(tip, i / segs);
+      drawSamples.push({ pos: p, t: now - drawStartedAt, bornAt: now });
+    }
+    lastDrawTip = tip.clone();
+    lastDrawTipAt = now;
+  }
+
+  function finalizeTrace(now) {
+    drawFinalizedAt = now;
+    let cx = 0, cy = 0, cz = 0;
+    for (const d of drawSamples) { cx += d.pos.x; cy += d.pos.y; cz += d.pos.z; }
+    drawCentroid.set(cx / drawSamples.length, cy / drawSamples.length, cz / drawSamples.length);
+    markOffset.set(0, 0, 0);
+    setDrawPhase('finalized');
+  }
+
+  // Placement — LEFT hand ONLY, and only once a trace is finalized. The
+  // left hand's thumb+index pinch (same PINCH_RATIO_ON/OFF thresholds and
+  // hysteresis the sphere charge uses) grabs the finished mark when it
+  // closes within range, drags it 1:1 with the pinch point as the hand
+  // moves, and places it when the pinch opens. The right hand is never
+  // read here, so it can't grab or place. Grab anchor and mark live in the
+  // same screen-accurate space, so the drag never lags or offsets.
+  function updateLeftHandPlacement(now) {
+    const center = currentMarkCenter();
+    const lm = currentLeftLm;
+
+    if (!lm) {
+      if (placeGrab) {
+        // Real MediaPipe tracking commonly drops the hand for a frame or
+        // two at the exact instant a pinch opens (fingers spreading fast,
+        // momentary motion blur / confidence dip) — that is noise, not the
+        // hand leaving. Hold the grab exactly where it is through a short
+        // grace window instead of cancelling on the first missing frame;
+        // only give up once the loss is sustained.
+        placeLostFrames++;
+        if (placeLostFrames > PLACE_LOST_GRACE_FRAMES) {
+          // Hand genuinely gone, not a blip — this is the common real-world
+          // shape of a deliberate release: the participant opens their
+          // pinch and their hand keeps moving out of frame (lowering their
+          // arm, stepping back) within the same second. Treat that as the
+          // release it almost certainly is and commit right where it sits,
+          // rather than leaving the mark in an uncommitted 'finalized' limbo
+          // that depends on a full 10s of total inactivity (and no further
+          // hand movement at all) to ever get saved.
+          placeLostFrames = 0;
+          placePinchPrev.Left = false;
+          placeTrace(now);
+        }
+      } else {
+        placePinchPrev.Left = false;
+      }
+      return;
+    }
+    placeLostFrames = 0;
+
+    const ratio = dist3(lm[4], lm[8]) / handSizeOf(lm);
+    const pinching = placePinchPrev.Left ? ratio < PINCH_RATIO_OFF : ratio < PINCH_RATIO_ON;
+    const wasPinching = placePinchPrev.Left;
+    placePinchPrev.Left = pinching;
+    const pinch = pinchPointWorld(lm);
+
+    if (!placeGrab && pinching && !wasPinching && pinch.distanceTo(center) <= PLACE_GRAB_RADIUS) {
+      placeGrab = { startHandPos: pinch.clone(), offsetAtStart: markOffset.clone() };
+      setDrawPhase('grabbed');
+      lastScatteredActivityAt = now;
+    } else if (placeGrab) {
+      if (pinching) {
+        markOffset.copy(placeGrab.offsetAtStart).add(pinch).sub(placeGrab.startHandPos);
+        lastScatteredActivityAt = now;
+      } else {
+        placeTrace(now); // the deliberate release — the moment of placement
+      }
+    }
+  }
+
+  // Where the trace actually gets committed: at pinch release, at the
+  // mark's current (possibly dragged) center. commitTrace fires
+  // sendLightSignal('L') itself, so the light answers the placement —
+  // not the start of drawing, not the finalize hold.
+  function placeTrace(now) {
+    setDrawPhase('placed');
+    commitTrace(drawSamples, explodeStrength, now, currentMarkCenter());
+    resetDrawState();
+    explodePhase = 'reforming';
+    explodePhaseStartedAt = now;
+  }
+
+  // The trail's per-frame look: each dot pops in over DRAW_DOT_POP_MS,
+  // the newest dot burns brightest while drawing (that's the pen tip),
+  // the whole material's dot size creeps up as the trail grows, and
+  // finishing gives the settle-then-steady glow — the same visual
+  // grammar as a trace being committed elsewhere in the piece.
+  function updateDrawTrailVisual(now) {
+    const n = drawSamples.length;
+    const active = explodePhase === 'scattered' && drawPhase !== 'idle' && n > 0;
+    drawTrailPoints.visible = active;
+    drawTrailGlow.visible = active;
+    if (!active) { drawTrailGeo.setDrawRange(0, 0); return; }
+
+    const color = new THREE.Color().setHSL(currentHue / 360, 0.68, 0.6);
+    const posAttr = drawTrailGeo.attributes.position;
+    const colAttr = drawTrailGeo.attributes.color;
+    const ox = markOffset.x, oy = markOffset.y, oz = markOffset.z;
+
+    let stateGlow = 1;
+    if (drawPhase === 'finalized') {
+      const settleT = clamp((now - drawFinalizedAt) / 600, 0, 1);
+      stateGlow = lerp(1.8, 0.85, settleT);
+    } else if (drawPhase === 'grabbed') {
+      stateGlow = 1.15; // lifts a little while carried
+    }
+
+    for (let i = 0; i < n; i++) {
+      const d = drawSamples[i];
+      posAttr.setXYZ(i, d.pos.x + ox, d.pos.y + oy, d.pos.z + oz);
+      const pop = clamp((now - d.bornAt) / DRAW_DOT_POP_MS, 0, 1);
+      // a bright floor so even a just-landed dot reads immediately, rising
+      // into an over-1 (hot, clipping-toward-white) core as it finishes
+      // popping; the newest dot burns brightest of all — the pen tip
+      let b = (0.85 + 0.7 * pop) * stateGlow;
+      if (drawPhase === 'drawing' && i === n - 1) b *= 1.6;
+      colAttr.setXYZ(i, color.r * b, color.g * b, color.b * b);
+    }
+    posAttr.needsUpdate = true;
+    colAttr.needsUpdate = true;
+    drawTrailGeo.setDrawRange(0, n);
+    // dot width kept close to DRAW_SAMPLE_MIN_DIST so neighbouring dots
+    // touch into a continuous trail without their bright cores merging into
+    // a solid tube; a restrained glow halo keeps each dot reading as a
+    // distinct circle rather than smearing the whole stroke into one blob
+    drawTrailMat.size = 9.8; // ~50% bigger than the original 6.5, kept in step with DRAW_SAMPLE_MIN_DIST above
+    drawTrailGlow.material.size = drawTrailMat.size * 2.2;
+  }
+
+  // The inactivity clock — "no hand detected, or hand present but not
+  // moving/interacting" resets the scene eventually. A pinch counts as
+  // interacting even when it isn't drawing (charging a fresh explosion,
+  // or carrying the finished mark, are both clearly still engagement);
+  // otherwise a hand has to actually be moving to count, so a hand
+  // that's merely present and still doesn't hold the reset off
+  // indefinitely. (Deliberate stillness that means something — the
+  // finish-hold — refreshes the clock explicitly in updateDrawing.)
+  function updateScatteredActivity(now, dt) {
+    if (explodePhase !== 'scattered') return;
+    for (const key of ['Right', 'Left']) {
+      const lm = key === 'Right' ? currentRightLm : currentLeftLm;
+      const state = handStates[key];
+      if (!lm) { state.scatterLastWorldPos = null; continue; }
+      if (state.wasPinching) { lastScatteredActivityAt = now; state.scatterLastWorldPos = null; continue; }
+      const world = handWorldPos(lm);
+      const velocity = state.scatterLastWorldPos ? world.distanceTo(state.scatterLastWorldPos) / Math.max(dt, 0.001) : 0;
+      state.scatterLastWorldPos = world.clone();
+      if (velocity > SCATTERED_ACTIVITY_VELOCITY_MIN) lastScatteredActivityAt = now;
+    }
+  }
+
+  // After ~10s of inactivity, the session is over. A finished mark that
+  // was simply never repositioned is a completed trace — repositioning
+  // is optional — so it settles and saves right where it currently sits
+  // (drag offset included, if a grab was underway). A drawing that was
+  // never finished with the palm-hold is an abandoned attempt and
+  // dissolves with the reset, unsaved.
+  function checkScatteredInactivity(now) {
+    if (explodePhase !== 'scattered') return;
+    if (now - lastScatteredActivityAt < SCATTERED_INACTIVITY_MS) return;
+
+    if (drawPhase === 'finalized' || drawPhase === 'grabbed') {
+      commitTrace(drawSamples, explodeStrength, now, currentMarkCenter());
+    }
+    resetDrawState();
+
+    explodePhase = 'reforming';
+    explodePhaseStartedAt = now;
+  }
+
+  // The ONLY caption authority while the scene is scattered (the
+  // leave-a-trace flow). Deterministic, evaluated fresh each frame from
+  // the current phase, and completely separate from the reveal caption —
+  // reveal detection doesn't even run during 'scattered' (see animate),
+  // so the reveal prompt can never appear here. Returns true when it has
+  // taken ownership of the caption, so animate knows reveal must stay
+  // silent this frame.
+  // One caption per state, keyed directly off drawPhase — the same single
+  // variable the state machine transitions — so the caption can never
+  // disagree with the state. Returns true when it owns the caption this
+  // frame, so animate keeps reveal silent.
+  function updateDrawHint() {
+    if (explodePhase !== 'scattered') return false;
+    if (drawPhase === 'grabbed') {
+      hintEl.textContent = 'release the pinch to place your trace';
+    } else if (drawPhase === 'finalized') {
+      // repositioning prompt only once the left pinch point is actually in
+      // grab range of the finished mark; otherwise a gentler "come here" cue
+      const leftNear = currentLeftLm &&
+        pinchPointWorld(currentLeftLm).distanceTo(currentMarkCenter()) <= PLACE_GRAB_RADIUS;
+      hintEl.textContent = leftNear
+        ? 'pinch to grab and move your trace'
+        : 'bring your left hand over your trace to move it';
+    } else if (drawPhase === 'completing') {
+      hintEl.textContent = 'hold still to complete your trace';
+    } else { // 'drawing'
+      hintEl.textContent = 'point one finger and draw in the air';
+    }
+    return true;
+  }
+
+  // ===========================================================================
+  // Persistent traces — purely additive layer on top of the live sphere
+  // above. A separate population of small, quiet particle clusters, each
+  // one a record of a specific completed gesture: the actual path a
+  // fingertip drew in the air after an explosion (see the post-explosion
+  // drawing section above), resting wherever its maker deliberately
+  // placed it. Saved to localStorage so they survive reloads; discovered
+  // later by hovering an open, still palm nearby. Nothing in this
+  // section changes how the live sphere moves, charges, explodes,
+  // scales, or colors.
+  // ===========================================================================
+  let traces = [];
+  let newestTraceId = null;             // the most recently finalized trace — it pulses; every other trace holds dim & static
+  const traceVisuals = new Map();       // id -> { points, glow, jitter, revealLevel, linkBoost, seedPhase, replayClock }
+  const recentlyRevealedAt = new Map(); // id -> timestamp, in-memory only — drives response linking
+  const linkLines = new Map();          // "idA|idB" -> { line, aId, bId }
+
+  function loadTraces() {
+    try {
+      const raw = localStorage.getItem(TRACE_STORAGE_KEY);
+      traces = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      console.warn('inMotion: could not load traces', e);
+      traces = [];
+    }
+  }
+  function saveTraces() {
+    try {
+      localStorage.setItem(TRACE_STORAGE_KEY, JSON.stringify(traces));
+    } catch (e) {
+      console.warn('inMotion: could not save traces', e);
+    }
+  }
+
+  // ---- Shared space -------------------------------------------------------
+  // Everyone who visits sees the same traces. The server (api/traces.js) holds
+  // the canonical list; localStorage is only a fast first paint / offline cache.
+  const TRACES_API = '/api/traces';
+  const SHARED_POLL_MS = 15000;
+  const pendingPushIds = new Set(); // traces committed here but not yet confirmed by the server
+
+  function refreshNewestTrace() {
+    if (!traces.length) { newestTraceId = null; return; }
+    let newest = traces[0];
+    for (const tr of traces) if (tr.completedAt > newest.completedAt) newest = tr;
+    newestTraceId = newest.id;
+  }
+
+  async function pushSharedTrace(trace) {
+    pendingPushIds.add(trace.id);
+    try {
+      const r = await fetch(TRACES_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(trace),
+      });
+      if (r.ok) {
+        const { trace: saved } = await r.json();
+        if (saved) trace.completedAt = saved.completedAt; // adopt the server clock
+        refreshNewestTrace();
+      }
+    } catch (e) {
+      console.warn('inMotion: could not share trace (kept locally)', e);
+    } finally {
+      pendingPushIds.delete(trace.id);
+    }
+  }
+
+  async function pullSharedTraces() {
+    try {
+      const r = await fetch(TRACES_API, { cache: 'no-store' });
+      if (!r.ok) return;
+      const { traces: remote } = await r.json();
+      if (!Array.isArray(remote)) return;
+      const remoteIds = new Set(remote.map((t) => t.id));
+      const localById = new Map(traces.map((t) => [t.id, t]));
+      let changed = false;
+
+      for (const rt of remote) {
+        const local = localById.get(rt.id);
+        if (local) {
+          if (local.completedAt !== rt.completedAt) { local.completedAt = rt.completedAt; changed = true; }
+        } else {
+          traces.push(rt);
+          createTraceVisual(rt);
+          changed = true;
+        }
+      }
+      // drop anything the server no longer has (trimmed, or old local-only data),
+      // except traces still being sent
+      for (const tr of traces.slice()) {
+        if (!remoteIds.has(tr.id) && !pendingPushIds.has(tr.id)) {
+          disposeTraceVisual(tr);
+          traces.splice(traces.indexOf(tr), 1);
+          changed = true;
+        }
+      }
+      if (changed) { refreshNewestTrace(); saveTraces(); }
+    } catch (e) {
+      console.warn('inMotion: could not reach the shared space', e);
+    }
+  }
+
+  // Resample a raw {pos,t}[] to a fixed point count, interpolating both
+  // position and its recorded time along cumulative arc length — so every
+  // trace is stored/rendered with the same particle budget regardless of
+  // how long the original hold was, while preserving the original
+  // motion's own timing/tempo (a fast sweep and a slow one keep reading
+  // as fast and slow on replay, not normalized away).
+  function resamplePathWithTiming(rawPath, n) {
+    if (rawPath.length === 1) {
+      const out = [];
+      for (let i = 0; i < n; i++) out.push({ pos: rawPath[0].pos.clone(), t: 0 });
+      return out;
+    }
+    const pts = rawPath.map((p) => p.pos);
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i - 1].distanceTo(pts[i]));
+    const total = cum[cum.length - 1] || 0.0001;
+    const out = [];
+    for (let k = 0; k < n; k++) {
+      const target = (k / (n - 1)) * total;
+      let idx = 1;
+      while (idx < cum.length - 1 && cum[idx] < target) idx++;
+      const segStart = cum[idx - 1], segEnd = cum[idx];
+      const segT = segEnd > segStart ? (target - segStart) / (segEnd - segStart) : 0;
+      const pos = pts[idx - 1].clone().lerp(pts[idx], segT);
+      const time = lerp(rawPath[idx - 1].t, rawPath[idx].t, segT);
+      out.push({ pos, t: time });
+    }
+    return out;
+  }
+
+  function randomTraceRestSpot() {
+    let candidate = null;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      candidate = new THREE.Vector3(
+        (Math.random() * 2 - 1) * TRACE_REST_SPREAD_XY,
+        (Math.random() * 2 - 1) * TRACE_REST_SPREAD_XY * 0.7,
+        (Math.random() * 2 - 1) * TRACE_REST_SPREAD_Z
+      );
+      let clear = true;
+      for (const tr of traces) {
+        const rp = tr.restPos;
+        if (candidate.distanceTo(new THREE.Vector3(rp.x, rp.y, rp.z)) < TRACE_MIN_SEPARATION) { clear = false; break; }
+      }
+      if (clear) return candidate;
+    }
+    return candidate; // crowded — settle for the last attempt rather than never landing
+  }
+
+  // A completed gesture counts as a deliberate response if any part of its
+  // own actual path (where the hand really was while forming it) comes
+  // within reach of a trace that was recently, actively being revealed —
+  // not proximity between two arbitrary rest slots, but proximity to
+  // wherever the participant was actually hovering.
+  function findResponseTarget(rawWorldPositions, now) {
+    let best = null, bestD = Infinity;
+    for (const tr of traces) {
+      const revealedAt = recentlyRevealedAt.get(tr.id);
+      if (revealedAt === undefined || now - revealedAt > RESPONSE_WINDOW_MS) continue;
+      const rp = new THREE.Vector3(tr.restPos.x, tr.restPos.y, tr.restPos.z);
+      let d = Infinity;
+      for (const p of rawWorldPositions) { const dd = p.distanceTo(rp); if (dd < d) d = dd; }
+      if (d <= RESPONSE_RADIUS && d < bestD) { bestD = d; best = tr.id; }
+    }
+    return best;
+  }
+
+  // Layer 1 — turns a raw {pos,t}[] path into a stored trace: resampled,
+  // re-centered on its own middle (so it can live anywhere in the scene),
+  // and capped to a modest size. Tagged with the color it was made in.
+  // Called from placeTrace with the drawn path and the deliberately
+  // chosen drop position (restPosOverride) — or, without an override,
+  // it falls back to picking a random uncrowded rest spot as it always
+  // did (the inactivity fallback passes the mark's own current center).
+  function commitTrace(rawPathSamples, chargeStrength, now, restPosOverride) {
+    const hasPath = rawPathSamples && rawPathSamples.length > 0;
+    const rawTimed = hasPath ? rawPathSamples : [{ pos: sphereGroup.position.clone(), t: 0 }];
+    const rawWorldPositions = rawTimed.map((p) => p.pos);
+
+    const resampled = resamplePathWithTiming(rawTimed, TRACE_RESAMPLE_COUNT);
+
+    let cx = 0, cy = 0, cz = 0;
+    for (const p of resampled) { cx += p.pos.x; cy += p.pos.y; cz += p.pos.z; }
+    cx /= resampled.length; cy /= resampled.length; cz /= resampled.length;
+    const centroid = new THREE.Vector3(cx, cy, cz);
+
+    // Store the path at its TRUE drawn scale (no shrink). A placed trace
+    // must stay the same size and shape it was dragged to and dropped at —
+    // so it reads as "my trace, left right here", not a tiny dormant speck.
+    // Older traces still settle into a tight cluster at rest (see
+    // updateTraceVisuals) because their rest position-blend keeps them
+    // clustered until hovered; only their resolved/revealed form uses this
+    // full scale.
+    const restPos = restPosOverride || randomTraceRestSpot();
+
+    const trace = {
+      id: 'tr_' + Date.now() + '_' + Math.floor(Math.random() * 100000),
+      path: resampled.map((p) => ({
+        x: (p.pos.x - centroid.x),
+        y: (p.pos.y - centroid.y),
+        z: (p.pos.z - centroid.z),
+        t: p.t
+      })),
+      duration: resampled[resampled.length - 1].t,
+      hue: currentHue,
+      strength: chargeStrength,
+      restPos: { x: restPos.x, y: restPos.y, z: restPos.z },
+      completedAt: Date.now(),
+      respondsTo: findResponseTarget(rawWorldPositions, now)
+    };
+
+    traces.push(trace);
+    newestTraceId = trace.id; // this one now pulses; the prior newest demotes to dim/static
+    pruneTracesIfOverMax();
+    saveTraces();
+    pushSharedTrace(trace);
+    sendLightSignal('L'); // trace just left as dormant, for the next person to find
+    createTraceVisual(trace);
+  }
+
+  function createTraceVisual(trace) {
+    const n = trace.path.length;
+    const positions = new Float32Array(n * 3);
+    const colors = new Float32Array(n * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.PointsMaterial({
+      size: 1.3,
+      map: particleTexture,
+      transparent: true,
+      depthTest: false, // finalized traces must remain visible over the reforming sphere
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: true,
+      sizeAttenuation: true,
+      opacity: 0.95
+    });
+    const points = new THREE.Points(geo, mat);
+    points.renderOrder = 20;
+    const glow = addGlowLayer(points, scene, 3, 0.4);
+    glow.material.depthTest = false;
+    glow.renderOrder = 19;
+    scene.add(points);
+
+    const jitter = [];
+    for (let i = 0; i < n; i++) {
+      jitter.push(new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6));
+    }
+
+    traceVisuals.set(trace.id, {
+      points, glow, jitter,
+      revealLevel: DORMANT_FLOOR,
+      linkBoost: 0,
+      holdSeconds: 0,        // continuous targeted-hold time this session, see updateTraceVisuals
+      revealSignaled: false, // guards sendLightSignal('R') to once per hold, see updateTraceVisuals
+      seedPhase: Math.random() * Math.PI * 2,
+      replayClock: trace.duration > 0 ? Math.random() * trace.duration : 0 // stagger so traces don't all pulse in sync
+    });
+  }
+
+  function disposeTraceVisual(trace) {
+    const v = traceVisuals.get(trace.id);
+    if (!v) return;
+    scene.remove(v.points);
+    v.points.geometry.dispose();
+    v.points.material.dispose();
+    scene.remove(v.glow);
+    v.glow.material.dispose();
+    traceVisuals.delete(trace.id);
+  }
+
+  function rebuildAllTraceVisuals() {
+    for (const tr of traces) createTraceVisual(tr);
+    // the most recently completed trace (across what was loaded) is newest
+    if (traces.length) {
+      let newest = traces[0];
+      for (const tr of traces) if (tr.completedAt > newest.completedAt) newest = tr;
+      newestTraceId = newest.id;
+    }
+  }
+
+  function pruneTracesIfOverMax() {
+    if (traces.length <= MAX_TRACES) return;
+    traces.sort((a, b) => a.completedAt - b.completedAt);
+    const removed = traces.shift();
+    disposeTraceVisual(removed);
+    for (const tr of traces) if (tr.respondsTo === removed.id) tr.respondsTo = null;
+  }
+
+  // Layers 2 & 3 — every finalized trace is always shown as itself: the
+  // actual path someone else drew, not an abstract unresolved cluster of
+  // dust. Dormant traces just sit dim and faint, the newest glows and
+  // breathes so the next person can spot it immediately, and traces dim
+  // progressively further back by recency as more of them accumulate, so
+  // a full background never reads as crowded or noisy. A trace being
+  // actively targeted eases up toward full brightness on top of all that,
+  // with a moving pulse of light traveling along it at the original
+  // gesture's own recorded tempo — literally replaying where the hand
+  // was, in order, at the timing it was actually there.
+  function updateTraceVisuals(t, dt, targetedIds) {
+    const riseRate = 1 - Math.exp(-dt / REVEAL_RISE_SECONDS);
+    const fallRate = 1 - Math.exp(-dt / REVEAL_FALL_SECONDS);
+
+    // recency rank per trace (0 = newest), the more traces pile up the
+    // further back the oldest ranks reach — this is what drives the
+    // progressive dimming below, not just a flat newest/older split
+    const rankById = new Map();
+    traces.slice().sort((a, b) => b.completedAt - a.completedAt)
+      .forEach((tr, i) => rankById.set(tr.id, i));
+
+    for (const tr of traces) {
+      const v = traceVisuals.get(tr.id);
+      if (!v) continue;
+      if (targetedIds.has(tr.id)) {
+        v.revealLevel += (1 - v.revealLevel) * riseRate;
+        recentlyRevealedAt.set(tr.id, performance.now());
+        v.holdSeconds += dt;
+        if (!v.revealSignaled && v.holdSeconds >= REVEAL_HOLD_SECONDS) {
+          sendLightSignal('R'); // this trace has finished revealing
+          v.revealSignaled = true;
+        }
+      } else {
+        v.revealLevel += (DORMANT_FLOOR - v.revealLevel) * fallRate;
+        // any break in the hold resets the timer and re-arms the signal —
+        // the next continuous 2s hold (on this trace or a later one) fires again
+        v.holdSeconds = 0;
+        v.revealSignaled = false;
+      }
+    }
+
+    // Layer 4 — response linking: a trace currently being revealed lends
+    // some of its brightness to whatever it answers (or was answered by),
+    // eased the same way so it never snaps on or off
+    for (const tr of traces) {
+      const v = traceVisuals.get(tr.id);
+      if (!v) continue;
+      let boostTarget = 0;
+      for (const other of traces) {
+        if (other.id === tr.id) continue;
+        const linked = other.respondsTo === tr.id || tr.respondsTo === other.id;
+        if (!linked || !targetedIds.has(other.id)) continue;
+        const ov = traceVisuals.get(other.id);
+        if (ov) boostTarget = Math.max(boostTarget, LINK_BOOST_FACTOR * ov.revealLevel);
+      }
+      const rate = boostTarget > v.linkBoost ? riseRate : fallRate;
+      v.linkBoost += (boostTarget - v.linkBoost) * rate;
+    }
+
+    for (const tr of traces) {
+      const v = traceVisuals.get(tr.id);
+      if (!v) continue;
+
+      // hover-driven brightness (reveal/response) — this is what resolves a
+      // trace into its recorded shape and runs the traveling replay light
+      const revealDisplay = clamp(Math.max(v.revealLevel, v.linkBoost), 0, 1);
+
+      // persistence baseline — every finalized trace stays visible at a
+      // resting brightness, dim and faint by default. The newest one sits
+      // brightest and breathes (a gentle opacity + scale pulse) to read as
+      // "newest / active"; every trace behind it dims further the further
+      // back its recency rank is, sliding from TRACE_OLDER_BASE down to
+      // TRACE_OLDEST_FLOOR over TRACE_DIM_RANK_SPAN traces — so the more
+      // that accumulate, the dimmer the old ones settle, keeping a full
+      // background calm instead of crowded. Hover brightness rises above
+      // this baseline; it never drops below it.
+      const isNewest = tr.id === newestTraceId;
+      const pulseNorm = 0.5 + 0.5 * Math.sin(t * TRACE_NEWEST_PULSE_SPEED + v.seedPhase);
+      const pulse = isNewest ? TRACE_NEWEST_PULSE_AMP * pulseNorm : 0;
+      const rank = rankById.get(tr.id) || 0;
+      const rankDimT = clamp(rank / TRACE_DIM_RANK_SPAN, 0, 1);
+      const agedBase = lerp(TRACE_OLDER_BASE, TRACE_OLDEST_FLOOR, rankDimT);
+      const persist = (isNewest ? TRACE_NEWEST_BASE : agedBase) + pulse;
+
+      // brightness blends hover reveal with the persistence baseline
+      const bright = clamp(Math.max(revealDisplay, persist), 0, 1);
+      const shaped = Math.pow(bright, 1.6);
+
+      // POSITION resolve is separate from brightness: every trace always
+      // shows its actual recorded shape — the real gesture someone left,
+      // not an abstract dust cluster — dim or bright doesn't change that.
+      // A hand hovering can still fully resolve/crisp it further.
+      const posDisplay = Math.max(revealDisplay, isNewest ? 0.92 : TRACE_SHAPE_FLOOR);
+      const settle = 1 - posDisplay;
+
+      // the traveling replay light only runs while a trace is actually
+      // being revealed by a hand — dimmed background traces stay static
+      const revealing = revealDisplay >= TRACE_REPLAY_REVEAL_MIN;
+      if (tr.duration > 50 && revealing) {
+        v.replayClock += dt * 1000;
+        const loopLen = tr.duration + TRACE_REPLAY_PAUSE_MS;
+        if (v.replayClock > loopLen) v.replayClock -= loopLen;
+      }
+
+      const posAttr = v.points.geometry.attributes.position;
+      const colAttr = v.points.geometry.attributes.color;
+      const color = new THREE.Color().setHSL(tr.hue / 360, 0.68, 0.6);
+      const brightness = shaped * 1.7;
+      const restX = tr.restPos.x, restY = tr.restPos.y, restZ = tr.restPos.z;
+
+      for (let i = 0; i < tr.path.length; i++) {
+        const p = tr.path[i], j = v.jitter[i];
+        const driftX = Math.sin(t * 0.35 + v.seedPhase + i) * settle * 3;
+        const driftY = Math.cos(t * 0.3 + v.seedPhase + i * 1.3) * settle * 3;
+        const ox = lerp(j.x * 0.4, p.x, posDisplay);
+        const oy = lerp(j.y * 0.4, p.y, posDisplay);
+        const oz = lerp(j.z * 0.4, p.z, posDisplay);
+        posAttr.setXYZ(i, restX + ox + driftX, restY + oy + driftY, restZ + oz);
+
+        let travel = 0;
+        if (tr.duration > 50 && revealing) {
+          const tDist = Math.abs(p.t - v.replayClock);
+          travel = clamp(1 - tDist / TRACE_PULSE_WINDOW_MS, 0, 1);
+        }
+        const b = brightness * (1 + travel * 1.8);
+        colAttr.setXYZ(i, color.r * b, color.g * b, color.b * b);
+      }
+      posAttr.needsUpdate = true;
+      colAttr.needsUpdate = true;
+      // the newest/placed trace is rendered as prominent dots (matching the
+      // drawn-trail bead look), with a pronounced size breath — large and
+      // obvious enough that whoever encounters it next can immediately
+      // pick it out as "the one just left"; older traces are the small
+      // dim clusters. Both are dots, never a connecting line.
+      v.points.material.size = isNewest ? (8.5 + 3.5 * pulseNorm) : (1.7 + shaped * 2.4);
+      v.glow.material.opacity = isNewest ? (0.35 + 0.4 * pulseNorm) : (0.1 + shaped * 0.45);
+      // the glow was only ever sized once at creation time, so it quietly
+      // fell out of step with the core dot's own pulse/reveal size — keep
+      // it locked to a fixed multiple of the current core size every frame
+      v.glow.material.size = v.points.material.size * 2.6;
+    }
+  }
+
+  // Layer 3 — discovery. An open, held-still palm near a dormant trace's
+  // resting point wakes it. This is mutually exclusive with charging (a
+  // pinching hand is never "open"), so it never competes with the live
+  // sphere's own pinch-charge mechanic — it's simply also true of the
+  // same tracked hand on frames where it isn't pinching. Velocity is
+  // tracked independently of the existing rotation state so this addition
+  // can never influence that math.
+  function isOpenEnoughToReveal(lm) {
+    return countExtendedFingers(lm) >= REVEAL_MIN_FINGERS;
+  }
+  function findNearestDormantTrace(worldPos, radius) {
+    let nearest = null, nearestD = Infinity;
+    for (const tr of traces) {
+      const rp = new THREE.Vector3(tr.restPos.x, tr.restPos.y, tr.restPos.z);
+      const d = worldPos.distanceTo(rp);
+      if (d < nearestD) { nearestD = d; nearest = tr; }
+    }
+    return nearest && nearestD <= radius ? nearest : null;
+  }
+  function updateReveal(state, lm, dt) {
+    if (!lm) { state.revealLastWorldPos = null; return null; }
+    const world = handWorldPos(lm);
+    const velocity = state.revealLastWorldPos ? world.distanceTo(state.revealLastWorldPos) / Math.max(dt, 0.001) : 0;
+    state.revealLastWorldPos = world.clone();
+
+    if (state.wasPinching) return null;
+    if (!isOpenEnoughToReveal(lm)) return null;
+    if (velocity > REVEAL_STILL_VELOCITY_MAX) return null;
+
+    return findNearestDormantTrace(world, REVEAL_RADIUS);
+  }
+
+  // Overrides the bottom hint (set moments earlier, this same frame, by
+  // updateHintText inside updateHands) only when a reveal is actually in
+  // progress — the four existing hint states and their own logic are
+  // never touched.
+  function updateRevealHint(anyRevealing) {
+    if (anyRevealing) hintEl.textContent = `hold for ${REVEAL_HOLD_SECONDS} seconds to reveal your trace`;
+  }
+
+  // Layer 4 — a faint thread between a trace and whatever it answers,
+  // visible only in proportion to how awake either end currently is.
+  function updateLinkThreads() {
+    const desired = new Set();
+    for (const tr of traces) {
+      if (!tr.respondsTo) continue;
+      const other = traces.find((o) => o.id === tr.respondsTo);
+      if (!other) continue;
+      const key = [tr.id, other.id].sort().join('|');
+      desired.add(key);
+      if (!linkLines.has(key)) {
+        const a = tr.restPos, b = other.restPos;
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(a.x, a.y, a.z),
+          new THREE.Vector3(b.x, b.y, b.z)
+        ]);
+        const mat = new THREE.LineBasicMaterial({
+          color: 0xd9b26a, transparent: true, opacity: 0,
+          blending: THREE.AdditiveBlending, depthWrite: false
+        });
+        const line = new THREE.Line(geo, mat);
+        scene.add(line);
+        linkLines.set(key, { line, aId: tr.id, bId: other.id });
+      }
+    }
+    for (const [key, entry] of linkLines) {
+      if (!desired.has(key)) {
+        scene.remove(entry.line);
+        entry.line.geometry.dispose();
+        entry.line.material.dispose();
+        linkLines.delete(key);
+        continue;
+      }
+      const va = traceVisuals.get(entry.aId), vb = traceVisuals.get(entry.bId);
+      const la = va ? Math.max(va.revealLevel, va.linkBoost) : 0;
+      const lb = vb ? Math.max(vb.revealLevel, vb.linkBoost) : 0;
+      entry.line.material.opacity = clamp(Math.max(la, lb) * 0.5, 0, 0.5);
+    }
+  }
+
+  // ===========================================================================
+  // MediaPipe Hands setup
+  // ===========================================================================
+  const hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
+  });
+  hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.65,
+    minTrackingConfidence: 0.6
+  });
+  hands.onResults(onHandsResults);
+
+  function onHandsResults(results) {
+    const lmList = results.multiHandLandmarks || [];
+    const handednessList = results.multiHandedness || [];
+
+    let lmByKey = { Left: null, Right: null };
+    for (let i = 0; i < lmList.length; i++) {
+      const label = handednessList[i] && handednessList[i].label;
+      if ((label === 'Left' || label === 'Right') && !lmByKey[label]) lmByKey[label] = lmList[i];
+    }
+    currentLeftLm = lmByKey.Left;
+    currentRightLm = lmByKey.Right;
+  }
+
+  // ---------------------------------------------------------------------
+  // Camera bootstrap
+  // ---------------------------------------------------------------------
+  let mpCamera = null;
+  function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      loadingEl.textContent = 'camera not available in this browser/context';
+      return;
+    }
+    try {
+      mpCamera = new Camera(videoEl, {
+        onFrame: async () => {
+          await hands.send({ image: videoEl });
+        },
+        width: 640,
+        height: 480
+      });
+      mpCamera.start().then(() => {
+        loadingEl.style.opacity = '0';
+        setTimeout(() => { loadingEl.style.display = 'none'; }, 650);
+      }).catch((err) => {
+        loadingEl.textContent = 'camera access needed — please allow and reload';
+        console.error(err);
+      });
+    } catch (err) {
+      loadingEl.textContent = 'camera access needed — please allow and reload';
+      console.error(err);
+    }
+  }
+  startCamera();
+
+  // ---------------------------------------------------------------------
+  // Webcam background toggle
+  // ---------------------------------------------------------------------
+  let camVisible = false;
+  toggleCamBtn.addEventListener('click', () => {
+    camVisible = !camVisible;
+    videoEl.classList.toggle('visible', camVisible);
+    toggleCamBtn.classList.toggle('on', camVisible);
+    toggleCamBtn.textContent = camVisible ? 'Webcam: On' : 'Webcam: Off';
+  });
+
+  // ---------------------------------------------------------------------
+  // Web Serial — optional physical LED companion. Entirely additive: with
+  // no Arduino connected (or in a browser without Web Serial at all) the
+  // app behaves exactly as before. sendLightSignal() below is a no-op
+  // whenever serialWriter isn't set, so every call site can fire-and-forget
+  // without checking connection state itself.
+  // ---------------------------------------------------------------------
+  let serialWriter = null;
+  if ('serial' in navigator) {
+    connectLightBtn.style.display = 'block';
+    connectLightBtn.addEventListener('click', async () => {
+      try {
+        const port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        serialWriter = port.writable.getWriter();
+        connectLightBtn.classList.add('on');
+        connectLightBtn.textContent = 'Light: Connected';
+      } catch (err) {
+        console.warn('inMotion: could not connect to light', err);
+      }
+    });
+  }
+  function sendLightSignal(command) {
+    if (!serialWriter) return;
+    serialWriter.write(new TextEncoder().encode(command)).catch((err) => {
+      console.warn('inMotion: light signal failed', err);
+    });
+  }
+
+  // ===========================================================================
+  // Main loop
+  // ===========================================================================
+  let lastTime = performance.now();
+
+  function animate() {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    const t = now / 1000;
+
+    updateHands(now, dt);
+    updateExplode(now, dt);
+    updateDrawing(now, dt);
+    updateScatteredActivity(now, dt);
+    checkScatteredInactivity(now);
+    updateSphereVisual(t);
+    updateDrawTrailVisual(now);
+
+    // Two fully separate modes, never sharing caption state:
+    //   • leave-a-trace (the whole 'scattered' phase) — updateDrawHint is
+    //     the sole caption authority; reveal detection does not run at all.
+    //   • discover-a-trace (everywhere else, chiefly idle) — reveal may
+    //     wake a nearby dormant trace and own the caption.
+    // Because reveal detection is skipped entirely during 'scattered',
+    // the reveal prompt physically cannot appear during drawing/finalize/
+    // placement, and there's no shared flag for the two to fight over.
+    const leavingTrace = explodePhase === 'scattered';
+    const targetedIds = new Set();
+    if (!leavingTrace) {
+      const rTarget = updateReveal(handStates.Right, currentRightLm, dt);
+      const lTarget = updateReveal(handStates.Left, currentLeftLm, dt);
+      if (rTarget) targetedIds.add(rTarget.id);
+      if (lTarget) targetedIds.add(lTarget.id);
+    }
+    updateTraceVisuals(t, dt, targetedIds);
+    updateLinkThreads();
+    if (updateDrawHint()) {
+      // leave-a-trace owns the caption this frame; reveal stays silent
+    } else {
+      updateRevealHint(targetedIds.size > 0);
+    }
+
+    drawOverlay();
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  }
+
+  loadTraces();
+  rebuildAllTraceVisuals();
+  pullSharedTraces();
+  setInterval(pullSharedTraces, SHARED_POLL_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pullSharedTraces(); });
+  requestAnimationFrame(animate);
+
+})();
+</script>
+</body>
+</html>
